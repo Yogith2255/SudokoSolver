@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sudoku Backtracking Visualizer</title>
+    <style>
+        :root {
+            --cell-size: 45px;
+            --font-size: 22px;
+        }
+
+        @media (max-width: 500px) {
+            :root { --cell-size: 35px; --font-size: 18px; }
+        }
+
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            text-align: center; 
+            background: #f0f2f5; 
+            margin: 0;
+            padding: 10px;
+        }
+
+        h1 { color: #333; margin-bottom: 10px; font-size: 1.5rem; }
+
+        .grid { 
+            display: grid; 
+            grid-template-columns: repeat(9, var(--cell-size)); 
+            grid-template-rows: repeat(9, var(--cell-size)); 
+            justify-content: center; 
+            margin: 10px auto; 
+            border: 3px solid #000; 
+            width: fit-content;
+            background-color: #000;
+            gap: 1px;
+        }
+
+        input { 
+            width: var(--cell-size); 
+            height: var(--cell-size); 
+            text-align: center; 
+            font-size: var(--font-size); 
+            border: none; 
+            background: #fff; 
+            outline: none; 
+            padding: 0;
+            box-sizing: border-box;
+            border-radius: 0;
+        }
+
+        .grid > input:nth-child(n+19):nth-child(-n+27), 
+        .grid > input:nth-child(n+46):nth-child(-n+54) { 
+            border-bottom: 3px solid #000; 
+        }
+
+        input:nth-child(3n) { border-right: 2px solid #000; }
+        input:nth-child(9n) { border-right: none; }
+
+        .btn-group { 
+            display: flex; 
+            flex-wrap: wrap; 
+            justify-content: center; 
+            gap: 8px; 
+            max-width: 500px;
+            margin: 20px auto;
+        }
+
+        button { 
+            padding: 10px 15px; 
+            cursor: pointer; 
+            border-radius: 5px; 
+            border: 1px solid #ccc;
+            font-weight: bold;
+            flex: 1 1 140px; 
+            max-width: 200px;
+            font-size: 14px;
+            transition: 0.2s;
+        }
+
+        button:active { transform: scale(0.95); }
+    </style>
+</head>
+<body>
+    <h1>Sudoku Visualizer</h1>
+    
+    <div class="grid" id="grid"></div>
+
+    <div class="level-select">
+        <label for="difficulty" style="font-weight:bold;">Difficulty: </label>
+        <select id="difficulty" style="padding: 5px; font-size: 16px;">
+            <option value="Easy">Easy</option>
+            <option value="Medium" selected>Medium</option>
+            <option value="Hard">Hard</option>
+        </select>
+    </div>
+
+    <div class="btn-group">
+        <button onclick="generateBoard()" style="background:#3498db; color:white;">Random Question</button>
+        <button onclick="clearBoard()">Manual Input</button>
+        <button onclick="checkAnswer()" style="background:#2ecc71; color:white;">Submit Answer</button>
+        <button onclick="visualizeBacktracking()" style="background:#e67e22; color:white;">Visualize</button>
+        <button onclick="showAnswer()" style="background:#9b59b6; color:white;">Show Answer</button>
+        <button onclick="getHint()" style="background:#f1c40f;">Get Hint</button>
+    </div>
+
+    <script>
+        const gridElement = document.getElementById('grid');
+        let isVisualizing = false;
+        let currentProcessId = 0;
+        let originalBoardData = null; // Stores the starting state
+
+        // Initialize the Grid
+        for (let i = 0; i < 81; i++) {
+            const input = document.createElement('input');
+            input.type = "text";
+            input.maxLength = 1;
+            input.id = `cell-${i}`;
+            input.oninput = function() { if(!/[1-9]/.test(this.value)) this.value = ''; };
+            gridElement.appendChild(input);
+        }
+
+        function getBoard() {
+            let board = [];
+            for (let r = 0; r < 9; r++) {
+                let row = [];
+                for (let c = 0; c < 9; c++) {
+                    const val = document.getElementById(`cell-${r * 9 + c}`).value;
+                    row.push(val === '' ? '.' : val);
+                }
+                board.push(row);
+            }
+            return board;
+        }
+
+        function fillGrid(board) {
+            // Store original board data for resetting later
+            originalBoardData = JSON.parse(JSON.stringify(board)); 
+            
+            for (let i = 0; i < 81; i++) {
+                const r = Math.floor(i / 9);
+                const c = i % 9;
+                const cell = document.getElementById(`cell-${i}`);
+                cell.style.color = "black";
+                if (board[r][c] !== '.') {
+                    cell.value = board[r][c];
+                    cell.disabled = true;
+                    cell.style.backgroundColor = "#eee";
+                } else {
+                    cell.value = '';
+                    cell.disabled = false;
+                    cell.style.backgroundColor = "#fff";
+                }
+            }
+        }
+
+        async function generateBoard() {
+            currentProcessId++; // Kill any active visualizer
+            isVisualizing = false; 
+            const level = document.getElementById('difficulty').value;
+            const res = await fetch(`/generate?level=${level}`);
+            const data = await res.json();
+            fillGrid(data.board);
+        }
+
+        async function showAnswer() {
+            const myProcessId = ++currentProcessId; 
+            isVisualizing = false;
+
+            // 1. Immediately reset to the original question numbers
+            if (originalBoardData) {
+                fillGrid(originalBoardData);
+            }
+
+            const board = getBoard();
+            const res = await fetch('/solve', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({board: board})
+            });
+            
+            const data = await res.json();
+            if (data.status === "success") {
+                // 2. Delay for 0.5s so user sees the "original" puzzle first
+                await new Promise(res => setTimeout(res, 500));
+                
+                // 3. Only proceed if the user hasn't clicked something else
+                if (myProcessId === currentProcessId) {
+                    for (let i = 0; i < 81; i++) {
+                        const r = Math.floor(i / 9);
+                        const c = i % 9;
+                        const cell = document.getElementById(`cell-${i}`);
+                        if (!cell.disabled) {
+                            cell.value = data.solution[r][c];
+                            cell.style.color = "#3498db";
+                        }
+                    }
+                }
+            }
+        }
+
+        async function solveStepByStep(board, processId) {
+            for (let r = 0; r < 9; r++) {
+                for (let c = 0; c < 9; c++) {
+                    if (board[r][c] === '.') {
+                        for (let k = 1; k <= 9; k++) {
+                            // MISTAKE FIX: Check processId to stop immediately
+                            if (!isVisualizing || processId !== currentProcessId) return false; 
+
+                            if (isValid(board, r, c, k.toString())) {
+                                board[r][c] = k.toString();
+                                updateUI(r, c, k, "#2ecc71");
+                                await new Promise(res => setTimeout(res, 30));
+
+                                if (await solveStepByStep(board, processId)) return true;
+
+                                // MISTAKE FIX: Don't "clean up" (clear red) if we are aborting
+                                if (!isVisualizing || processId !== currentProcessId) return false; 
+                                
+                                board[r][c] = '.';
+                                updateUI(r, c, "", "#e74c3c");
+                                await new Promise(res => setTimeout(res, 10));
+                            }
+                        }
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        async function visualizeBacktracking() {
+            if (isVisualizing) return;
+            isVisualizing = true;
+            const myProcessId = ++currentProcessId;
+            await solveStepByStep(getBoard(), myProcessId);
+            if (myProcessId === currentProcessId) isVisualizing = false;
+        }
+
+        function isValid(board, r, c, k) {
+            for (let i = 0; i < 9; i++) {
+                const m = 3 * Math.floor(r / 3) + Math.floor(i / 3);
+                const n = 3 * Math.floor(c / 3) + i % 3;
+                if (board[r][i] === k || board[i][c] === k || board[m][n] === k) return false;
+            }
+            return true;
+        }
+
+        function updateUI(r, c, val, color) {
+            const cell = document.getElementById(`cell-${r * 9 + c}`);
+            cell.value = val;
+            cell.style.color = color;
+        }
+
+        function clearBoard() {
+            currentProcessId++;
+            isVisualizing = false;
+            originalBoardData = null;
+            for (let i = 0; i < 81; i++) {
+                const cell = document.getElementById(`cell-${i}`);
+                cell.value = ""; cell.disabled = false;
+                cell.style.backgroundColor = "#fff";
+                cell.style.color = "black";
+            }
+        }
+
+        async function getHint() {
+            currentProcessId++; // Stop visualization
+            isVisualizing = false;
+            
+            const board = getBoard();
+            const res = await fetch('/hint', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ board: board })
+            });
+            const data = await res.json();
+            
+            if (data.status === "success") {
+                const { row, col, value } = data.hint;
+                const cell = document.getElementById(`cell-${row * 9 + col}`);
+                cell.value = value;
+                cell.style.color = "#3498db";
+                cell.style.backgroundColor = "#d1ecf1";
+                setTimeout(() => { cell.style.backgroundColor = "#fff"; }, 500);
+            }
+        }
+        async function checkAnswer() {
+    // 1. Stop any active visualization
+    isVisualizing = false;
+    currentProcessId++;
+
+    const board = getBoard();
+    
+    // Check if the board is even full first
+    const isFull = board.every(row => row.every(cell => cell !== '.'));
+    if (!isFull) {
+        alert("The board is not finished yet!");
+        return;
+    }
+
+    // 2. Send to backend to validate
+    const res = await fetch('/solve', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({board: board})
+    });
+    
+    const data = await res.json();
+
+    if (data.status === "success") {
+        // Since the board is full and the solver says it's valid, the user won!
+        alert("Congratulations! You solved the Sudoku correctly!");
+        
+        // Optional: Highlight everything green to celebrate
+        for (let i = 0; i < 81; i++) {
+            document.getElementById(`cell-${i}`).style.backgroundColor = "#d4edda";
+        }
+    } else {
+        // If the backend returns an error, it means something is wrong
+        alert("There is a mistake somewhere on the board. Keep trying!");
+    }
+}
+    </script>
+</body>
+</html>
